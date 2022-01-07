@@ -1,51 +1,70 @@
-"""
-Create a visualisation of the mandelbrot set
-
-last updated: 2021-04-23
-"""
+"""Create a visualisation of the mandelbrot set"""
 
 
 
-
-## MODULES ##
+################################### MODULES ###################################
+import cmath
 import numpy as np
+import numpy.typing as npt
 import time
 
-import matplotlib.pyplot as plt
 import matplotlib.animation as anim
-import cmath
+import matplotlib.pyplot as plt
+from matplotlib.image import AxesImage
+from matplotlib.axes import Axes
 
 
 
-
-## SUPPORT FUNCTIONS ##
+############################## SUPPORT FUNCTIONS ##############################
 def point_on_cardioid(t: float) -> complex:
     """Return a point that lies on the main cardioid, where t is a real number."""
     return np.exp(t*1j) * (2-np.exp(t*1j))/4 
 
 def rotate_by(z: complex, angle: float) -> complex:
     """Rotate z around the origin by an angle"""
-    #return z * np.exp(angle * 1j) #max precision 15
-    return z * cmath.rect(1,angle) #max precision 16
+    return z * cmath.rect(1,angle)
 
-def find_zoompoint(seed: complex, precision: int = 16, search_square_size: int = 5, n_max: int = 200, r_max: int = 2) -> complex:
-    """
-    Try to find a good point to zoom in on. The goal is to find a point in
-    the Mandelbrot set that is surrounded by points that aren't in the set.
-    (i.e. find a point on the set's boundary)
+def find_zoompoint(seed: complex, precision: int = 16, 
+                   search_square_size: int = 5, n_max: int = 200, 
+                   r_max: int = 2) -> complex:
+    """Try to find a good point to zoom in on.
+    
+    The goal is to find a point in the Mandelbrot set that is surrounded by
+    points that aren't in the set. (i.e. find a point on the set's boundary)
 
-    @param {complex} seed : place to start searching
-    @param {int} precision : number of decimal places to search up to
+    Parameters
+    ----------
+    seed
+        Place to start searching.
+    precision
+        Number of decimal places to search up to.
+    search_square_size
+        Search `search_square_size**2` points in a grid at each step.
+    n_max
+        As per `mandelbrot_escape_numbers`
+    r_max
+        As per `mandelbrot_escape_numbers`
+    
+    Notes
+    -----
+    Density 'supersampling' explanation: this will turn the actual grid into a
+    'super-sampled' grid, where a super-sampled point is only 0 all its actual
+    surrounding points are 0. The goal is to find points that are 0, but lie 
+    adjacent to non-zero points.
+
     """
-    # Restrictions
+    # RESTRICTIONS
     if abs(seed) > r_max:
         return 0
-    if precision > 16: # past this point you might need a double (in complex numbers' real and imaginary part) - any more than rotate_by() will not rotate when precision gets too high
+    if precision > 16: 
+        # Past this point you might need a double (in complex numbers' real
+        # and imaginary part) - any more then rotate_by() will not rotate when
+        # precision gets too high
         print("max precision is 16. Using that instead of {}".format(precision))
         precision = 16
 
 
-    # Directions to check
+    # DIRECTIONS TO CHECK
     dirs = []
     for y in np.linspace(-1, 1, search_square_size):
         col = []
@@ -54,7 +73,7 @@ def find_zoompoint(seed: complex, precision: int = 16, search_square_size: int =
         dirs.append(col)
     dirs = np.array(dirs)
 
-    # Search
+    # SEARCH
     current_total_rotations = 0
     prec = 1
     val = seed
@@ -62,39 +81,36 @@ def find_zoompoint(seed: complex, precision: int = 16, search_square_size: int =
         new =  val + dirs/10**prec
         escape_ns = mandelbrot_escape_numbers(new, n_max=n_max, r_max=r_max)
 
-        # Density 'supersampling'
-        """
-        Explanation: this will turn the actual grid into a 'super-sampled' grid,
-        where a super-sampled point is only 0 all its actual surrounding points 
-        are 0.
-        The goal is to find points that are 0, but lie adjacent to non-zero points.
-        """
+        # DENSITY 'SUPERSAMPLING'
         base = np.zeros_like(escape_ns)
-        # densities - top,right,bottom,left
+
+        # Densities - top,right,bottom,left
         top_left, top_right, bottom_right, bottom_left = np.copy(base), np.copy(base), np.copy(base), np.copy(base)
         top_left[:-1, :-1] = escape_ns[1:, 1:]
         top_right[:-1, 1:] = escape_ns[1:, :-1]
         bottom_right[1:, 1:] = escape_ns[:-1, :-1]
         bottom_left[1:,:-1] = escape_ns[:-1,1:]
 
-        # weight the border heavily - top,right,bottom,left
+        # Weight the border heavily - top,right,bottom,left
         base[:1, :] = 4*n_max + 1
         base[:,-1:] = 4*n_max + 1
         base[-1:, :] = 4*n_max + 1
         base[:, :1] = 4*n_max + 1
 
-        # total density
-        density = base + top_left + top_right  + bottom_right + bottom_left # For each point, this describes that point's surroundings (sort of like divergence in calculus)
+        # Total density
+        # For each point, this describes that point's surroundings (sort of
+        # like divergence in calculus).
+        density = base + top_left + top_right  + bottom_right + bottom_left 
 
 
-        # Select reasonable directions to try
+        # SELECT REASONABLE DIRECTION
         mask1 = np.logical_and(0 < density, density < 4*n_max + 1)
         if np.any(mask1):
             mask = np.equal(density, np.amin(density[mask1]))
         else:
-            mask = mask1 # no reasonable values
+            mask = mask1 # No reasonable values
         possible_vals = new[mask]
-        np.random.shuffle(possible_vals) #randomise the choice if multiple points have the same escape nummber
+        np.random.shuffle(possible_vals) # Randomise the choice if multiple points have the same escape nummber
 
         # Find a suitable value
         new_found = False
@@ -104,7 +120,9 @@ def find_zoompoint(seed: complex, precision: int = 16, search_square_size: int =
                 val = possible_val
                 break
 
-        #last resort - try to rotate cloclwise (up to a maximum) +++ TODO: try both clockwise & anticlockwise and choose which one is better
+        # LAST RESORT: TRY TO ROTATE CLOCKWISE (up to a maximum)
+        # TODO: try both clockwise & anticlockwise and choose which one is
+        # better.
         if not new_found and current_total_rotations < 2*np.pi:
             rotate_angle = 1/10**prec / abs(val) # s.t. arc length ~ 1/10**prec
             val = rotate_by(val, rotate_angle)
@@ -118,17 +136,30 @@ def find_zoompoint(seed: complex, precision: int = 16, search_square_size: int =
 
 
 
-def mandelbrot_escape_numbers(domain: 'array_like', n_max: int = 200, r_max: int = 2) -> np.array:
-    """
-    Mandelbrot 'condition'. Any element in domain that has a non-zero
-    'escape number' is assumed to have a sequence that diverges to infinity,
-    and is hence not in the Mandelbrot set.
+def mandelbrot_escape_numbers(domain: np.ndarray[complex, np.dtype[complex]], n_max: int = 200,
+                              r_max: int = 2) -> np.ndarray[complex, np.dtype[complex]]:
+    """Mandelbrot 'condition'.
+    
+    Any element in domain that has a non-zero 'escape number' is assumed to
+    have a sequence that diverges to infinity, and is hence not in the
+    Mandelbrot set.
 
     Return the number of iterations, for each element in domain (an array of 
-    complex numbers), to reach abs(element) > r_max where each element is 
+    complex numbers), to reach `abs(element) > r_max` where each element is 
     repeatedly subject to: 
-        element = element**2 + original_value
-    up to n_max times.
+        `element = element**2 + original_value`
+    up to `n_max` times.
+
+    Parameters
+    ----------
+    domain
+        2D array of complex numbers to find escape numbers of.
+    n_max
+        Maximum number of iterations to check
+    r_max
+        Maximum 'radius', which if a complex number reaches, it is assumed the
+        sequence diverges.
+    
     """
     domain = np.copy(domain)
     result = np.zeros_like(domain, dtype=int)
@@ -142,12 +173,8 @@ def mandelbrot_escape_numbers(domain: 'array_like', n_max: int = 200, r_max: int
     return result
 
 def men_one_element(z: complex , n_max: int = 200, r_max: float = 2):
-    """
-    As mandelbrot_escape_numbers, but for a single number. Left as a 
-    demonstration. Repeatedly do:
-        zn+1 = zn^2 + z
-    to in a sequence of complex numbers zn
-    """
+    """As `mandelbrot_escape_numbers`, but for a single number. Left as a 
+    demonstration."""
     zn = z
     for n in range(n_max):
         if abs(zn) > r_max:
@@ -157,30 +184,44 @@ def men_one_element(z: complex , n_max: int = 200, r_max: float = 2):
 
 
 
-
-## MAIN FUNCTIONS ##
-def mandelbrot_square(z_min, z_max, n=500, n_max = 100, showplot=False, axis=None, overall_extent=None):
-    """
-    Visualise the mandelbrot set in a square matrix from z_min to z_max of size
-    n**2.
-    The colours correspond to the number of iterations required to have
+################################ VISUALISATION ################################
+def mandelbrot_square(z_min: complex, z_max: complex, n: int = 500, 
+                      n_max: int = 100, show_plot: bool = False, 
+                      axis: Axes = None, overall_extent: list[float] = None) -> AxesImage:
+    """Visualise the mandelbrot set in a square matrix 
+    
+    Colours correspond to the number of iterations required to have
         (abs(z) > r_max=2), modulo 200.
-
-    @param {complex} z_min : min z value
-    @param {complex} z_max : max z value
-    @param {int} n : number of numbers to check length-wise and height-wise
-    @param {int} n_max : max number of iterations to check in mandelbrot_check() before declaring a value will not diverge to infinity
-    @param {Axis} axis : axis to plot to
-    @param {list} overall_extent : used in animating
+    
+    Parameters
+    ----------
+    z_min
+        Bottom-left corner of complex domain to visualise
+    z_max
+        Top-right corner of complex domain to visualise
+    n
+        Split the domain length and height by `n` points
+    n_max
+        As per `mandelbrot_escape_numbers`
+    show_plot
+        If `True`, show the plot in a popup
+    axis
+        Axis to plot to
+    overall_extent
+        Parameter to `plt.imshow` to ensure consistency across frames in an
+        animation
+    
     """
-    # Mandelbrot iteration
+    # MANDELBROT ITERATION
     real_domain = np.linspace(z_min.real, z_max.real, n)
     imag_domain = np.linspace(z_min.imag, z_max.imag, n)
     domain = [ [complex(x,y) for x in real_domain] for y in imag_domain ]
     domain = np.array(domain)
     escape_ns = mandelbrot_escape_numbers(domain, n_max)
     
-    # Enabling detail to be viewed +++ try different functions to map result to [0,1], and set vmax = highest value possible with that function
+    # COLOURING
+    # TODO: try different functions to map result to [0,1], and set 
+    # vmax = highest value possible with that function.
     viewmapper = 1
     if viewmapper == 1:
         escape_ns, vmax = escape_ns%200, 200
@@ -191,76 +232,103 @@ def mandelbrot_square(z_min, z_max, n=500, n_max = 100, showplot=False, axis=Non
     # Colormap, some good ones: None, 'hsv' - https://matplotlib.org/stable/tutorials/colors/colormaps.html
     cmap = None
 
-    # Creating graph
-    extent = overall_extent or [z_min.real, z_max.real, z_min.imag, z_max.imag]
+    # CREATING GRAPH
+    local_extent = [z_min.real, z_max.real, z_min.imag, z_max.imag]
+    extent = overall_extent or local_extent
     plot = axis or plt
     image = plot.imshow(escape_ns, extent=extent, aspect='equal', vmin=0, vmax=vmax, cmap=cmap)
 
-    if showplot:
+    if show_plot:
         plt.ylabel("Im")
         plt.xlabel("Re")
         plt.show()
     return image
 
 
-def create_animation(centre: complex, range_: complex, num_frames: int, 
+def create_animation(centre: complex, 
+                     range_: complex, 
+                     num_frames: int, 
                      n_max: int = 100, 
                      zoom_factor: float = 2, 
                      num_pixels: int = 500, 
                      frame_rate: float = 2, 
                      output_filename: str = None):
-    """
-    Create an animation
+    """Create a zoom animation
 
-    NOTE: the displayed range is not correct!
+    Parameters
+    ----------
+    centre
+        Centre point to zoom in on.
+    range_
+        Complex number representing the range in real and imaginary directions.
+        Both `range_.real` and `range_.complex` should be positive.
+    num_frames
+        Number of frames to render.
+    n_max
+        As per `mandelbrot_escape_numbers`.
+    zoom_factor
+        Factor to zoom in by in each successive frame.
+    num_pixels
+        Number of pixels along width & height.
+    frame_rate
+        Frames per second
+    output_filename
+        Save a gif to `output_filename` if not None. (EXCLUDE the `.gif` file
+        extension).
+
+    NOTES
+    -----
+    The displayed range is not correct!
 
     TODO:
-        - 'use_dynamic_stepsize' -> increase n_max as the zoom_factor increases
-        - or 'n_max':None -> choose n_max dynamically (should be done in 
-          mandelbrot_square)
-    
-    @param {complex} centre : centre of the plot
-    @param {complex} range_ : complex number representing the range. Both 
-                              range_.real and range_.imag should be positive
-    @param {float} zoom_factor : factor to zoom by in each successive frame
-    @param {int} num_pixels : number of pixels along width & height
-    @param {int} num_frames : number of frames to render
-    @param {float} frame_rate : frames per second
-    @param {str} output_filename : save a gif to output_filename if not None. (DO NOT SPECIFY .gif for now)
+    - Display the axes correctly (correct orientation and scale) for each frame
+    - 'use_dynamic_stepsize' -> increase n_max as the zoom_factor increases, or
+      'n_max':None -> choose n_max dynamically (should be done in
+      mandelbrot_square).
+
     """
     print("|=============================|")
     print(" starting to create animation")
     t0 = time.process_time()
 
-    fig = plt.figure()
-    plt.ylabel("Im") # not working
-    plt.xlabel("Re")
+    fig = plt.figure() # tight and constrained don't get rid of all the whitespace
+    #plt.ylabel("Im") # not working
+    #plt.xlabel("Re")
 
     z_min = centre - range_/2
     z_max = centre + range_/2
     overall_extent = [z_min.real, z_max.real, z_min.imag, z_max.imag]
     ax = plt.axes(xlim=(z_min.real, z_max.real), ylim=(z_min.imag, z_max.imag))
-
+    ax.axis('off') # Hide the axes bugs
     
-    # Create Frames
+    # CREATE FRAMES
     ims = []
     for zoom_level in range(1,num_frames+1):
         r = range_ / (zoom_factor ** zoom_level)
-        im = mandelbrot_square(centre-r/2, centre+r/2, num_pixels, n_max, False, ax, overall_extent)
+        im = mandelbrot_square(
+            z_min = centre - r/2, 
+            z_max = centre + r/2, 
+            n = num_pixels, 
+            n_max = n_max, 
+            show_plot = False, 
+            axis = ax, 
+            overall_extent = overall_extent
+        )
         ims.append([im])
         print("  ++ finished frame {}".format(zoom_level))
 
-    # Create Animation
+    # COMBINE INTO ANIMATION
     interval = round(1000 / frame_rate)
     animation = anim.ArtistAnimation(fig, ims, interval=interval, repeat=True, blit=True)
 
-    # Display or Save
+    # DISPLAY OR SAVE
     print(" mandelbrot animation completed")
     if output_filename == None:
         plt.show()
     else:
         animation.save(output_filename+".gif", fps=frame_rate)
         print(" saved mandelbrot animation as '{}.gif'".format(output_filename))
+    
     t1 = time.process_time()
     print(" time taken: {:.3f}".format(t1-t0))
     print("|=============================|")
@@ -268,15 +336,8 @@ def create_animation(centre: complex, range_: complex, num_frames: int,
 
 
 
-
-
-
-
-
+###############################################################################
 if __name__ == '__main__':
-    import time
-
-    # https://en.wikipedia.org/wiki/Misiurewicz_point and https://math.stackexchange.com/questions/2181175/value-to-use-as-center-of-mandelbrot-set-zoom for finding interesting points
     INTERESTING_POINTS = [
         {"centre":-0.5 + 0j, "range":3 + 3j}, #overview
         {"centre":-0.756 - 0.09j, "range":1+1j},
@@ -286,15 +347,14 @@ if __name__ == '__main__':
         {"centre":-0.645 - 0.385j, "range":1+1j},
         {"centre":-0.77568377 + 0.13646737j, "range": 5 + 3j}
         ]
-    OUTPUT_FILENAME = r"C:\Users\Nathan\Desktop\mandelbrotzoom"
 
     if True:
-        poi = find_zoompoint(-0.0045 - .0005j)
+        poi = find_zoompoint(-0.45 - .05j)
         range_ = 5+3j
         print("found an interesting point:", poi)
     else:
         poi, range_ = INTERESTING_POINTS[3].values()
 
 
-    #create_animation(poi, range_, 30, n_max=1000, output_filename=OUTPUT_FILENAME)
-    mandelbrot_square(poi-range_/2, poi+range_/2, 1000, showplot=True) #Produce a single image
+    create_animation(poi, range_, 5, zoom_factor=2, frame_rate=1.5, n_max=1000, output_filename="zoom_result")
+    #mandelbrot_square(poi-range_/2, poi+range_/2, 1000, showplot=True) #Produce a single image
